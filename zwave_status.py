@@ -19,10 +19,12 @@ import appdaemon.plugins.hass.hassapi as hass
 class ZWaveStatus(hass.Hass):
 
   # number of times the status has to stay the same before we drop tracking
-  COUNT = 5
+  COUNT = 2
 
   # number of polls after which we just give up and drop tracking anyway
   MAX_POLLS = 100
+
+  DELAY = 1
 
   # types of devices to do tracking for
   DEVICE_TYPES = {
@@ -34,6 +36,7 @@ class ZWaveStatus(hass.Hass):
     self.states = {}
     self.counts = {}
     self.tracking = {}
+    self.scheduled = set()
     self.device_types = set(
       (m, p) for m, ps in self.DEVICE_TYPES.items() for p in ps
     )
@@ -81,10 +84,19 @@ class ZWaveStatus(hass.Hass):
       self.tracking.pop(light, None)
       return
 
-    # still moving, save the current state and probe again.
-    self.tracking[light] += 1
-    self.states[light] = new_state
-    self.call_service("zwave/refresh_entity", entity_id=light)
+    # still moving, save the current state and schedule another probe
+    if light not in self.scheduled:
+      #self.log(f"scheduling refresh for {light}")
+      self.states[light] = new_state
+      self.tracking[light] += 1
+      self.scheduled.add(light)
+      self.run_in(self.refresh_callback, self.DELAY, entity_id=light)
+
+  def refresh_callback(self, kwargs):
+    entity = kwargs["entity_id"]
+    self.scheduled.discard(entity)
+    #self.log(f"refresh for {entity}")
+    self.call_service("zwave/refresh_entity", entity_id=entity)
 
   def state(self, entity):
     """gets a dict of all the entity's current state attributes"""
